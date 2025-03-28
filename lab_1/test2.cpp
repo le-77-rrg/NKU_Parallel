@@ -3,7 +3,7 @@ using namespace std;
 #include <windows.h>
 #include<chrono>
 
-long long int N=4096;
+long long int N;
 unsigned long long int a[135000000];
 
 
@@ -42,6 +42,30 @@ void optimize_test1() {
 	sum = sum1 + sum2;
 	QueryPerformanceCounter((LARGE_INTEGER*)&tail);
 	cout << "optimize_1:" << (tail - head) * 1000.0 / freq << "ms" << endl;
+
+}
+
+
+void unroll() {
+	long long head, tail, freq;
+	QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
+	QueryPerformanceCounter((LARGE_INTEGER*)&head);
+	unsigned long long int sum = 0;
+	unsigned long long int sum1 = 0;
+	unsigned long long int sum2 = 0;
+	unsigned long long int sum3 = 0;
+	unsigned long long int sum4 = 0;
+	for (int i = 0;i < N-3;i += 4) {
+		sum1 += a[i];
+		//if (i + 1 < N) {
+		sum2 += a[i + 1];
+		//}
+		sum3 += a[i + 2];
+		sum4 += a[i + 3];
+	}
+	sum = sum1 + sum2+sum3+sum4;
+	QueryPerformanceCounter((LARGE_INTEGER*)&tail);
+	cout << "unroll:" << (tail - head) * 1000.0 / freq << "ms" << endl;
 
 }
 
@@ -87,16 +111,18 @@ void optimize_test3() {
 }
 
 
+
 int main() {
-	//while (cin >> N) {
-		//N = pow(2, N);
+	while (cin >> N) {
+		N = pow(2, N);
 		initialize();
 		normal_test();
 		optimize_test1();
 		//optimize_test2();
 		//initialize();
 		//optimize_test3();
-	//}
+		unroll();
+	}
 	return 0;
 }
 
