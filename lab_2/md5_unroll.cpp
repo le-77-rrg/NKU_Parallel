@@ -319,23 +319,7 @@ void MD5Hash_NEON(string inputs[4], bit32 ** state)
 			x[i1+3] = vld1q_u32(data4);	
 			
 		}
-		// for (int i1 = 0; i1 < 16; i1 += 4) {
-		// 	// 一次处理4个word
-		// 	for(int m = 0; m < 4; m++) {
-		// 		uint32_t data[4];
-		// 		const int offset = 4 * (i1 + m) + i * 64;
-				
-		// 		#pragma unroll 4
-		// 		for(int n = 0; n < 4; n++) {
-		// 			data[n] = (paddedMessages[n][offset]) |
-		// 					 (paddedMessages[n][offset + 1] << 8) |
-		// 					 (paddedMessages[n][offset + 2] << 16) |
-		// 					 (paddedMessages[n][offset + 3] << 24);
-		// 		}
-		// 		x[i1 + m] = vld1q_u32(data);
-		// 	}
-		// }
-
+		
 		uint32x4_t a = state_temp[0], b = state_temp[1], c = state_temp[2], d = state_temp[3];
 
 		auto start = system_clock::now();
