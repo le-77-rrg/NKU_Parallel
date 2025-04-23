@@ -243,27 +243,98 @@ void MD5Hash_NEON(string inputs[4], bit32 ** state)
 		uint32x4_t x[16];
 
 		// 下面的处理，在理解上较为复杂
-		for (int i1 = 0; i1 < 16; ++i1)
+		for (int i1 = 0; i1 < 16; i1+=4)
 		{
-			uint32_t data[4];
-			data[0] = (paddedMessages[0][4 * i1 + i * 64]) |   //第0字节
+			uint32_t data1[4];
+			uint32_t data2[4];
+			uint32_t data3[4];
+			uint32_t data4[4];
+			data1[0] = (paddedMessages[0][4 * i1 + i * 64]) |   //第0字节
 					(paddedMessages[0][4 * i1 + 1 + i * 64] << 8) |//第1字节
 					(paddedMessages[0][4 * i1 + 2 + i * 64] << 16) |//第2字节
 					(paddedMessages[0][4 * i1 + 3 + i * 64] << 24);//第3字节
-			data[1] = (paddedMessages[1][4 * i1 + i * 64]) |   //第0字节
+			data1[1] = (paddedMessages[1][4 * i1 + i * 64]) |   //第0字节
 					(paddedMessages[1][4 * i1 + 1 + i * 64] << 8) |//第1字节
 					(paddedMessages[1][4 * i1 + 2 + i * 64] << 16) |//第2字节
 					(paddedMessages[1][4 * i1 + 3 + i * 64] << 24);//第3字节
-			data[2] = (paddedMessages[2][4 * i1 + i * 64]) |   //第0字节
+			data1[2] = (paddedMessages[2][4 * i1 + i * 64]) |   //第0字节
 					(paddedMessages[2][4 * i1 + 1 + i * 64] << 8) |//第1字节
 					(paddedMessages[2][4 * i1 + 2 + i * 64] << 16) |//第2字节
 					(paddedMessages[2][4 * i1 + 3 + i * 64] << 24);//第3字节
-			data[3] = (paddedMessages[3][4 * i1 + i * 64]) |   //第0字节
+			data1[3] = (paddedMessages[3][4 * i1 + i * 64]) |   //第0字节
 					(paddedMessages[3][4 * i1 + 1 + i * 64] << 8) |//第1字节
 					(paddedMessages[3][4 * i1 + 2 + i * 64] << 16) |//第2字节
 					(paddedMessages[3][4 * i1 + 3 + i * 64] << 24);//第3字节
-			x[i1] = vld1q_u32(data);	
+			x[i1] = vld1q_u32(data1);	
+			data2[0] = (paddedMessages[0][4 * (i1+1) + i * 64]) |   //第0字节
+					(paddedMessages[0][4 * (i1+1) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[0][4 * (i1+1) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[0][4 * (i1+1) + 3 + i * 64] << 24);//第3字节
+			data2[1] = (paddedMessages[1][4 * (i1+1) + i * 64]) |   //第0字节
+					(paddedMessages[1][4 * (i1+1) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[1][4 * (i1+1) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[1][4 * (i1+1) + 3 + i * 64] << 24);//第3字节
+			data2[2] = (paddedMessages[2][4 * (i1+1) + i * 64]) |   //第0字节
+					(paddedMessages[2][4 * (i1+1) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[2][4 * (i1+1) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[2][4 * (i1+1) + 3 + i * 64] << 24);//第3字节
+			data2[3] = (paddedMessages[3][4 * (i1+1) + i * 64]) |   //第0字节
+					(paddedMessages[3][4 * (i1+1) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[3][4 * (i1+1) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[3][4 * (i1+1) + 3 + i * 64] << 24);//第3字节
+			x[i1+1] = vld1q_u32(data2);	
+			data3[0] = (paddedMessages[0][4 * (i1+2) + i * 64]) |   //第0字节
+					(paddedMessages[0][4 * (i1+2) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[0][4 * (i1+2) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[0][4 * (i1+2) + 3 + i * 64] << 24);//第3字节
+			data3[1] = (paddedMessages[1][4 * (i1+2) + i * 64]) |   //第0字节
+					(paddedMessages[1][4 * (i1+2) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[1][4 * (i1+2) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[1][4 * (i1+2) + 3 + i * 64] << 24);//第3字节
+			data3[2] = (paddedMessages[2][4 * (i1+2) + i * 64]) |   //第0字节
+					(paddedMessages[2][4 * (i1+2) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[2][4 * (i1+2) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[2][4 * (i1+2) + 3 + i * 64] << 24);//第3字节
+			data3[3] = (paddedMessages[3][4 * (i1+2) + i * 64]) |   //第0字节
+					(paddedMessages[3][4 * (i1+2) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[3][4 * (i1+2) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[3][4 * (i1+2) + 3 + i * 64] << 24);//第3字节
+			x[i1+2] = vld1q_u32(data3);	
+			data4[0] = (paddedMessages[0][4 * (i1+3) + i * 64]) |   //第0字节
+					(paddedMessages[0][4 * (i1+3) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[0][4 * (i1+3) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[0][4 * (i1+3) + 3 + i * 64] << 24);//第3字节
+			data4[1] = (paddedMessages[1][4 * (i1+3) + i * 64]) |   //第0字节
+					(paddedMessages[1][4 * (i1+3) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[1][4 * (i1+3) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[1][4 * (i1+3) + 3 + i * 64] << 24);//第3字节
+			data4[2] = (paddedMessages[2][4 * (i1+3) + i * 64]) |   //第0字节
+					(paddedMessages[2][4 * (i1+3) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[2][4 * (i1+3) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[2][4 * (i1+3) + 3 + i * 64] << 24);//第3字节
+			data4[3] = (paddedMessages[3][4 * (i1+3) + i * 64]) |   //第0字节
+					(paddedMessages[3][4 * (i1+3) + 1 + i * 64] << 8) |//第1字节
+					(paddedMessages[3][4 * (i1+3) + 2 + i * 64] << 16) |//第2字节
+					(paddedMessages[3][4 * (i1+3) + 3 + i * 64] << 24);//第3字节
+			x[i1+3] = vld1q_u32(data4);	
+			
 		}
+		// for (int i1 = 0; i1 < 16; i1 += 4) {
+		// 	// 一次处理4个word
+		// 	for(int m = 0; m < 4; m++) {
+		// 		uint32_t data[4];
+		// 		const int offset = 4 * (i1 + m) + i * 64;
+				
+		// 		#pragma unroll 4
+		// 		for(int n = 0; n < 4; n++) {
+		// 			data[n] = (paddedMessages[n][offset]) |
+		// 					 (paddedMessages[n][offset + 1] << 8) |
+		// 					 (paddedMessages[n][offset + 2] << 16) |
+		// 					 (paddedMessages[n][offset + 3] << 24);
+		// 		}
+		// 		x[i1 + m] = vld1q_u32(data);
+		// 	}
+		// }
 
 		uint32x4_t a = state_temp[0], b = state_temp[1], c = state_temp[2], d = state_temp[3];
 
