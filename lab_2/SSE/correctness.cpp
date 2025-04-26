@@ -31,7 +31,7 @@ for (int i = 0; i < 4; ++i) {
     state[i] = new bit32[4];  // 每个输入需要4个状态值
 }
     MD5Hash_SSE(inputs, (bit32 **)state);
-    cout << "并行MD5Hash_NEON结果:" << endl;
+    cout << "并行MD5Hash_SSE结果:" << endl;
     for (int i1 = 0; i1 < 4; i1 += 1)
     {
         for(int i2 = 0; i2 < 4; i2 += 1){
