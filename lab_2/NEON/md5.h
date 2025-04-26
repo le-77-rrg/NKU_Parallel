@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <cstring>
-#include <arm_neon.h>
+#include<immintrin.h>
 using namespace std;
 
 // 定义了Byte，便于使用
@@ -37,31 +37,12 @@ typedef unsigned int bit32;
 // 定义了一系列MD5中的具体函数
 // 这四个计算函数是需要你进行SIMD并行化的
 // 可以看到，FGHI四个函数都涉及一系列位运算，在数据上是对齐的，非常容易实现SIMD的并行化
-#include <arm_neon.h>
+
 #define F(x, y, z) (((x) & (y)) | ((~x) & (z)))
 #define G(x, y, z) (((x) & (z)) | ((y) & (~z)))
 #define H(x, y, z) ((x) ^ (y) ^ (z))
 #define I(x, y, z) ((y) ^ ((x) | (~z)))
-#define F_NEON(x, y, z) \
-    vorrq_u32( \
-        vandq_u32((x), (y)), \
-        vandq_u32(vmvnq_u32(x), (z)) \
-    )
-#define G_NEON(x, y, z) \
-    vorrq_u32( \
-        vandq_u32((x), (z)), \
-        vandq_u32((y), vmvnq_u32(z)) \
-    )
-#define H_NEON(x, y, z) \
-    veorq_u32( \
-        veorq_u32((x), (y)), \
-        (z) \
-    )
-#define I_NEON(x, y, z) \
-    veorq_u32( \
-        (y), \
-        vorrq_u32((x), vmvnq_u32(z)) \
-    )
+
 /**
  * @Rotate Left.
  *
@@ -75,9 +56,7 @@ typedef unsigned int bit32;
 // 这五个计算函数（ROTATELEFT/FF/GG/HH/II）和之前的FGHI一样，都是需要你进行SIMD并行化的
 // 但是你需要注意的是#define的功能及其效果，可以发现这里的FGHI是没有返回值的，为什么呢？你可以查询#define的含义和用法
 #define ROTATELEFT(num, n) (((num) << (n)) | ((num) >> (32-(n))))
-// 向量化循环左移宏
-#define ROTATELEFT_NEON(vec, n) \
-    vorrq_u32(vshlq_n_u32((vec), (n)), vshrq_n_u32((vec), 32 - (n)))
+
 #define FF(a, b, c, d, x, s, ac) { \
   (a) += F ((b), (c), (d)) + (x) + ac; \
   (a) = ROTATELEFT ((a), (s)); \
@@ -99,43 +78,74 @@ typedef unsigned int bit32;
   (a) = ROTATELEFT ((a), (s)); \
   (a) += (b); \
 }
-#define FF_NEON(a, b, c, d, x, s, ac) do { \
-  uint32x4_t _f_term = F_NEON((b), (c), (d));       \
-  uint32x4_t _f_add = vaddq_u32(_f_term, (x));      \
-  _f_add = vaddq_u32(_f_add, vdupq_n_u32(ac));      \
-  (a) = vaddq_u32((a), _f_add);                     \
-  (a) = ROTATELEFT_NEON((a), (s));                  \
-  (a) = vaddq_u32((a), (b));                        \
-} while(0)
 
-// GG 步骤（使用 G_NEON）
-#define GG_NEON(a, b, c, d, x, s, ac) do { \
-  uint32x4_t _g_term = G_NEON((b), (c), (d));       \
-  uint32x4_t _g_add = vaddq_u32(_g_term, (x));      \
-  _g_add = vaddq_u32(_g_add, vdupq_n_u32(ac));      \
-  (a) = vaddq_u32((a), _g_add);                     \
-  (a) = ROTATELEFT_NEON((a), (s));                  \
-  (a) = vaddq_u32((a), (b));                        \
-} while(0)
-
-// HH 步骤（使用 H_NEON）
-#define HH_NEON(a, b, c, d, x, s, ac) do { \
-  uint32x4_t _h_term = H_NEON((b), (c), (d));       \
-  uint32x4_t _h_add = vaddq_u32(_h_term, (x));      \
-  _h_add = vaddq_u32(_h_add, vdupq_n_u32(ac));      \
-  (a) = vaddq_u32((a), _h_add);                     \
-  (a) = ROTATELEFT_NEON((a), (s));                  \
-  (a) = vaddq_u32((a), (b));                        \
-} while(0)
-
-// II 步骤（使用 I_NEON）
-#define II_NEON(a, b, c, d, x, s, ac) do { \
-  uint32x4_t _i_term = I_NEON((b), (c), (d));       \
-  uint32x4_t _i_add = vaddq_u32(_i_term, (x));      \
-  _i_add = vaddq_u32(_i_add, vdupq_n_u32(ac));      \
-  (a) = vaddq_u32((a), _i_add);                     \
-  (a) = ROTATELEFT_NEON((a), (s));                  \
-  (a) = vaddq_u32((a), (b));                        \
-} while(0)
 void MD5Hash(string input, bit32 *state);
-void MD5Hash_NEON(string inputs[4], bit32 ** state);
+const __m128i kAllOnes = _mm_set1_epi32(-1); // 0xFFFFFFFF 填充
+
+// SSE 版本的 F, G, H, I 函数
+#define F_SSE(x, y, z) \
+    _mm_or_si128( \
+        _mm_and_si128((x), (y)), \
+        _mm_andnot_si128(x, z) \
+    )
+#define G_SSE(x, y, z) \
+    _mm_or_si128( \
+        _mm_and_si128((x), (z)), \
+        _mm_andnot_si128(z,y) \
+    )
+#define H_SSE(x, y, z) \
+    _mm_xor_si128( \
+        _mm_xor_si128((x), (y)), \
+        (z) \
+    )
+#define I_SSE(x, y, z) \
+    _mm_xor_si128( \
+        (y), \
+        _mm_or_si128((x), _mm_andnot_si128(z,kAllOnes)) \
+    )
+
+// SSE 循环左移宏
+#define ROTATELEFT_SSE(vec, n) \
+    _mm_or_si128(_mm_slli_epi32((vec), (n)), _mm_srli_epi32((vec), 32 - (n)))
+
+// FF 步骤（使用 F_SSE）
+#define FF_SSE(a, b, c, d, x, s, ac) do { \
+  __m128i _f_term = F_SSE((b), (c), (d));       \
+  __m128i _f_add = _mm_add_epi32(_f_term, (x));      \
+  _f_add = _mm_add_epi32(_f_add, _mm_set1_epi32(ac));      \
+  (a) = _mm_add_epi32((a), _f_add);                     \
+  (a) = ROTATELEFT_SSE((a), (s));                  \
+  (a) = _mm_add_epi32((a), (b));                        \
+} while(0)
+
+// GG 步骤（使用 G_SSE）
+#define GG_SSE(a, b, c, d, x, s, ac) do { \
+  __m128i _g_term = G_SSE((b), (c), (d));       \
+  __m128i _g_add = _mm_add_epi32(_g_term, (x));      \
+  _g_add = _mm_add_epi32(_g_add, _mm_set1_epi32(ac));      \
+  (a) = _mm_add_epi32((a), _g_add);                     \
+  (a) = ROTATELEFT_SSE((a), (s));                  \
+  (a) = _mm_add_epi32((a), (b));                        \
+} while(0)
+
+// HH 步骤（使用 H_SSE）
+#define HH_SSE(a, b, c, d, x, s, ac) do { \
+  __m128i _h_term = H_SSE((b), (c), (d));       \
+  __m128i _h_add = _mm_add_epi32(_h_term, (x));      \
+  _h_add = _mm_add_epi32(_h_add, _mm_set1_epi32(ac));      \
+  (a) = _mm_add_epi32((a), _h_add);                     \
+  (a) = ROTATELEFT_SSE((a), (s));                  \
+  (a) = _mm_add_epi32((a), (b));                        \
+} while(0)
+
+// II 步骤（使用 I_SSE）
+#define II_SSE(a, b, c, d, x, s, ac) do { \
+  __m128i _i_term = I_SSE((b), (c), (d));       \
+  __m128i _i_add = _mm_add_epi32(_i_term, (x));      \
+  _i_add = _mm_add_epi32(_i_add, _mm_set1_epi32(ac));      \
+  (a) = _mm_add_epi32((a), _i_add);                     \
+  (a) = ROTATELEFT_SSE((a), (s));                  \
+  (a) = _mm_add_epi32((a), (b));                        \
+} while(0)
+
+void MD5Hash_SSE(string inputs[4], bit32 ** state);
