@@ -2,8 +2,11 @@
 #include <iostream>
 #include <unordered_map>
 #include <queue>
-#include <omp.h>
 #include <pthread.h>
+// 条件包含omp.h，在macOS上可能不可用
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 // #include <chrono>   
 // using namespace chrono;
 using namespace std;
@@ -156,7 +159,8 @@ public:
     // 对优先队列的一个PT，生成所有guesses
     void Generate(PT pt);
     void Generate_pthread(PT pt);
-    void Generate_openmp(PT pt);
+    void Generate_openmp(PT pt);  // 新增的OpenMP版本
+    void Generate_pthread_pool(PT pt);  // 新增的OpenMP版本
     // 将优先队列最前面的一个PT
     void PopNext();
     int total_guesses = 0;
@@ -166,4 +170,6 @@ public:
 // 在文件末尾添加以下声明
 void InitThreadPool(int num_threads);
 void CleanupThreadPool();
+
+
 
