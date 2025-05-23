@@ -104,7 +104,7 @@ int main()
 
 // int main()
 // {
-//     InitThreadPool(4);
+//     InitThreadPool(8);
 //     double time_hash = 0;  // 用于MD5哈希的时间
 //     double time_guess = 0; // 哈希和猜测的总时长
 //     double time_train = 0; // 模型训练的总时长
