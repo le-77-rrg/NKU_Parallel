@@ -6,33 +6,40 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#include<unistd.h>
 
 using namespace std;
 using namespace std::chrono;
 
-// 线程池任务结构
+// 修改线程池任务结构，添加线程本地结果数组
 struct Task {
     int start, end;
     string prefix;
     vector<string>* values;
-    string* guesses_out;
+    string* guesses_out;        // 可以为空，表示不使用共享结果数组
     int* guesses_count;
+    int thread_id;              // 新增：线程ID，用于标识写入哪个线程本地结果数组
+    vector<string>* local_results; // 新增：线程本地结果数组
 };
 
 // 线程池类
+// 修改线程池类，添加任务完成通知机制
 class ThreadPool {
 private:
     vector<pthread_t> workers;
     queue<Task> tasks;
     pthread_mutex_t queue_mutex;
     pthread_cond_t condition;
+    pthread_cond_t completion_cond;  // 新增完成条件变量
+    int active_tasks;                // 新增活跃任务计数器
     bool stop;
     
 public:
     // 初始化线程池
-    ThreadPool(size_t threads) : stop(false) {
+    ThreadPool(size_t threads) : stop(false), active_tasks(0) {
         pthread_mutex_init(&queue_mutex, NULL);
         pthread_cond_init(&condition, NULL);
+        pthread_cond_init(&completion_cond, NULL);  // 初始化完成条件变量
         
         workers.resize(threads);
         for (size_t i = 0; i < threads; ++i) {
@@ -55,16 +62,25 @@ public:
         
         pthread_mutex_destroy(&queue_mutex);
         pthread_cond_destroy(&condition);
+        pthread_cond_destroy(&completion_cond);  // 销毁完成条件变量
     }
     
     // 添加任务到线程池
     void Enqueue(Task task) {
-        {
-            pthread_mutex_lock(&queue_mutex);
-            tasks.push(task);
-            pthread_mutex_unlock(&queue_mutex);
-        }
+        pthread_mutex_lock(&queue_mutex);
+        tasks.push(task);
+        active_tasks++;  // 增加活跃任务计数
+        pthread_mutex_unlock(&queue_mutex);
         pthread_cond_signal(&condition);
+    }
+    
+    // 等待所有任务完成
+    void WaitAll() {
+        pthread_mutex_lock(&queue_mutex);
+        while (active_tasks > 0 || !tasks.empty()) {
+            pthread_cond_wait(&completion_cond, &queue_mutex);
+        }
+        pthread_mutex_unlock(&queue_mutex);
     }
     
 private:
@@ -74,32 +90,67 @@ private:
         
         while (true) {
             Task task;
+            bool got_task = false;
+            
             {
                 pthread_mutex_lock(&pool->queue_mutex);
-                while (!pool->stop && pool->tasks.empty()) {
-                    pthread_cond_wait(&pool->condition, &pool->queue_mutex);
-                }
                 
+                // 如果队列为空且线程池停止，则退出
                 if (pool->stop && pool->tasks.empty()) {
                     pthread_mutex_unlock(&pool->queue_mutex);
                     return NULL;
                 }
                 
-                task = pool->tasks.front();
-                pool->tasks.pop();
+                // 如果队列不为空，取出一个任务
+                if (!pool->tasks.empty()) {
+                    task = pool->tasks.front();
+                    pool->tasks.pop();
+                    got_task = true;
+                } else if (!pool->stop) {
+                    // 如果队列为空且线程池未停止，等待条件变量
+                    pthread_cond_wait(&pool->condition, &pool->queue_mutex);
+                    pthread_mutex_unlock(&pool->queue_mutex);
+                    continue;
+                } else {
+                    pthread_mutex_unlock(&pool->queue_mutex);
+                    continue;
+                }
+                
                 pthread_mutex_unlock(&pool->queue_mutex);
             }
             
-            // 执行任务
-            int local_count = 0;
-            for (int i = task.start; i < task.end; ++i) {
-                string guess = task.prefix + (*(task.values))[i];
-                task.guesses_out[i] = guess;
-                local_count++;
+            if (got_task) {
+                // 执行任务
+                int local_count = 0;
+                
+                // 根据任务类型选择写入目标
+                if (task.local_results != nullptr) {
+                    // 写入线程本地结果数组（无锁）
+                    for (int i = task.start; i < task.end; ++i) {
+                        string guess = task.prefix + (*(task.values))[i];
+                        task.local_results->push_back(std::move(guess));
+                        local_count++;
+                    }
+                } else if (task.guesses_out != nullptr) {
+                    // 写入共享结果数组（传统方式）
+                    for (int i = task.start; i < task.end; ++i) {
+                        string guess = task.prefix + (*(task.values))[i];
+                        task.guesses_out[i] = std::move(guess);
+                        local_count++;
+                    }
+                }
+                
+                // 更新线程局部计数并减少活跃任务计数
+                pthread_mutex_lock(&pool->queue_mutex);
+                *(task.guesses_count) = local_count;
+                pool->active_tasks--;
+                
+                // 如果没有活跃任务，发送完成信号
+                if (pool->active_tasks == 0 && pool->tasks.empty()) {
+                    pthread_cond_signal(&pool->completion_cond);
+                }
+                pthread_mutex_unlock(&pool->queue_mutex);
             }
-            
-            // 更新线程局部计数
-            *(task.guesses_count) = local_count;
         }
         
         return NULL;
@@ -220,8 +271,9 @@ void PriorityQueue::PopNext()
 {
 
     // 对优先队列最前面的PT，首先利用这个PT生成一系列猜测
-    Generate(priority.front()); //调用不同函数
-    // Generate_pthread(priority.front()); //调用不同函数
+    //Generate(priority.front()); //调用不同函数
+    Generate_pthread_pool(priority.front()); //调用不同函数
+    //Generate_pthread(priority.front()); //调用不同函数
     //Generate_openmp(priority.front()); // 使用OpenMP版本
     // 然后需要根据即将出队的PT，生成一系列新的PT
     vector<PT> new_pts = priority.front().NewPTs();
@@ -460,7 +512,7 @@ void PriorityQueue::Generate_pthread(PT pt)
         int total = pt.max_indices[0];
         
         // 提高任务粒度阈值，减少小任务的并行开销
-        if (total < 100000) {
+        if (total < 5000) {
             // 直接使用串行处理
             for (int i = 0; i < total; i++) {
                 guesses.push_back(a->ordered_values[i]);
@@ -555,7 +607,7 @@ void PriorityQueue::Generate_pthread(PT pt)
         int total = pt.max_indices[pt.content.size() - 1];
         
         // 提高任务粒度阈值
-        if (total < 100000) {
+        if (total < 5000) {
             // 直接使用串行处理
             for (int i = 0; i < total; i++) {
                 guesses.push_back(guess + a->ordered_values[i]);
@@ -707,5 +759,181 @@ void PriorityQueue::Generate_openmp(PT pt)
                 total_guesses += local_guesses.size();
             }
         }
+    }
+}
+
+void PriorityQueue::Generate_pthread_pool(PT pt)
+{
+    // 计算PT的概率
+    CalProb(pt);
+
+    // 对于只有一个segment的PT，直接遍历生成其中的所有value
+    if (pt.content.size() == 1)
+    {
+        // 指向segment的指针，这个指针实际指向模型中的统计数据
+        segment *a;
+        // 在模型中定位到这个segment
+        if (pt.content[0].type == 1)
+        {
+            a = &m.letters[m.FindLetter(pt.content[0])];
+        }
+        if (pt.content[0].type == 2)
+        {
+            a = &m.digits[m.FindDigit(pt.content[0])];
+        }
+        if (pt.content[0].type == 3)
+        {
+            a = &m.symbols[m.FindSymbol(pt.content[0])];
+        }
+        
+        int total = pt.max_indices[0];
+        
+        // 提高任务粒度阈值，减少小任务的并行开销
+        if (total < 100000) {
+            // 直接使用串行处理
+            for (int i = 0; i < total; i++) {
+                guesses.push_back(a->ordered_values[i]);
+            }
+            total_guesses += total;
+            return;
+        }
+        
+        // 使用更多的线程和更小的任务块
+        int num_threads = 8; // 自动获取CPU核心数
+        int optimal_chunk_size = 1000; // 每个任务处理1000个元素
+        int num_chunks = (total + optimal_chunk_size - 1) / optimal_chunk_size;
+        
+        // 预分配结果数组
+        guesses.reserve(guesses.size() + total); // 预先分配空间避免频繁扩容
+        string* results = new string[total];
+        int* thread_counts = new int[num_chunks];
+        memset(thread_counts, 0, sizeof(int) * num_chunks);
+        
+        // 创建任务并提交到线程池
+        for (int t = 0; t < num_chunks; ++t) {
+            int start = t * optimal_chunk_size;
+            int end = std::min((t + 1) * optimal_chunk_size, total);
+            
+            Task task = {
+                start,
+                end,
+                "",
+                &a->ordered_values,
+                results,
+                &thread_counts[t]
+            };
+            
+            global_thread_pool->Enqueue(task);
+        }
+        
+        // 使用条件变量等待所有任务完成，而不是轮询
+        global_thread_pool->WaitAll();
+        
+        // 批量添加结果 - 优化内存操作
+        for (int i = 0; i < total; ++i) {
+            guesses.push_back(std::move(results[i]));
+        }
+        
+        // 更新总计数
+        total_guesses += total;
+        
+        // 释放内存
+        delete[] results;
+        delete[] thread_counts;
+    }
+    else
+    {
+        string guess;
+        int seg_idx = 0;
+        for (int idx : pt.curr_indices)
+        {
+            if (pt.content[seg_idx].type == 1)
+            {
+                guess += m.letters[m.FindLetter(pt.content[seg_idx])].ordered_values[idx];
+            }
+            if (pt.content[seg_idx].type == 2)
+            {
+                guess += m.digits[m.FindDigit(pt.content[seg_idx])].ordered_values[idx];
+            }
+            if (pt.content[seg_idx].type == 3)
+            {
+                guess += m.symbols[m.FindSymbol(pt.content[seg_idx])].ordered_values[idx];
+            }
+            seg_idx += 1;
+            if (seg_idx == pt.content.size() - 1)
+            {
+                break;
+            }
+        }
+
+        // 指向最后一个segment的指针，这个指针实际指向模型中的统计数据
+        segment *a;
+        if (pt.content[pt.content.size() - 1].type == 1)
+        {
+            a = &m.letters[m.FindLetter(pt.content[pt.content.size() - 1])];
+        }
+        if (pt.content[pt.content.size() - 1].type == 2)
+        {
+            a = &m.digits[m.FindDigit(pt.content[pt.content.size() - 1])];
+        }
+        if (pt.content[pt.content.size() - 1].type == 3)
+        {
+            a = &m.symbols[m.FindSymbol(pt.content[pt.content.size() - 1])];
+        }
+        
+        int total = pt.max_indices[pt.content.size() - 1];
+        
+        // 提高任务粒度阈值
+        if (total < 100000) {
+            // 直接使用串行处理
+            for (int i = 0; i < total; i++) {
+                guesses.push_back(guess + a->ordered_values[i]);
+            }
+            total_guesses += total;
+            return;
+        }
+        
+        // 使用更多的线程和更小的任务块
+        int num_threads = 8; // 自动获取CPU核心数
+        int optimal_chunk_size = 1000; // 每个任务处理1000个元素
+        int num_chunks = (total + optimal_chunk_size - 1) / optimal_chunk_size;
+        
+        // 预分配结果数组
+        guesses.reserve(guesses.size() + total); // 预先分配空间避免频繁扩容
+        string* results = new string[total];
+        int* thread_counts = new int[num_chunks];
+        memset(thread_counts, 0, sizeof(int) * num_chunks);
+        
+        // 创建任务并提交到线程池
+        for (int t = 0; t < num_chunks; ++t) {
+            int start = t * optimal_chunk_size;
+            int end = std::min((t + 1) * optimal_chunk_size, total);
+            
+            Task task = {
+                start,
+                end,
+                guess,
+                &a->ordered_values,
+                results,
+                &thread_counts[t]
+            };
+            
+            global_thread_pool->Enqueue(task);
+        }
+        
+        // 使用条件变量等待所有任务完成，而不是轮询
+        global_thread_pool->WaitAll();
+        
+        // 批量添加结果 - 优化内存操作
+        for (int i = 0; i < total; ++i) {
+            guesses.push_back(std::move(results[i]));
+        }
+        
+        // 更新总计数
+        total_guesses += total;
+        
+        // 释放内存
+        delete[] results;
+        delete[] thread_counts;
     }
 }
